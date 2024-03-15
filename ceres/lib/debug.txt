@@ -1,0 +1,14 @@
+ceres-debug.lib
+gflags_debug.lib
+glogd.lib
+libamd.lib
+libbtfd.lib
+libcamd.lib
+libccolamd.lib
+libcholmod.lib
+libcolamd.lib
+libcxsparsed.lib
+libklud.lib
+libldld.lib
+libspqrd.lib
+libumfpackd.lib

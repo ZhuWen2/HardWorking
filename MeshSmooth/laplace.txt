@@ -1,0 +1,581 @@
+#include "MeshSmooth.h"
+
+#include <minmax.h>
+#include <algorithm>
+#include <math.h>
+
+void DihedralEnergy::compute_angles(const myMesh & m, myMesh::HalfedgeHandle h) const
+{
+	myMesh::HalfedgeHandle eh = m.opposite_halfedge_handle(h);
+	myMesh::VertexHandle hv = m.to_vertex_handle(h);
+	myMesh::VertexHandle hov = m.to_vertex_handle(eh);
+	myMesh::VertexHandle hnv = m.to_vertex_handle(m.next_halfedge_handle(h));
+	myMesh::VertexHandle honv = m.to_vertex_handle(m.next_halfedge_handle(eh));
+
+	OpenMesh::Vec3d va(m.point(hv));
+	OpenMesh::Vec3d vb(m.point(hov));
+	OpenMesh::Vec3d vc(m.point(hnv));
+	OpenMesh::Vec3d vd(m.point(honv));
+
+	myMesh::FaceHandle fa = m.face_handle(m.opposite_halfedge_handle(m.next_halfedge_handle(h)));
+	myMesh::FaceHandle fb = m.face_handle(m.opposite_halfedge_handle(m.next_halfedge_handle(m.next_halfedge_handle(h))));
+	myMesh::FaceHandle fc = m.face_handle(m.opposite_halfedge_handle(m.next_halfedge_handle(eh)));
+	myMesh::FaceHandle fd = m.face_handle(m.opposite_halfedge_handle(m.next_halfedge_handle(m.next_halfedge_handle(eh))));
+
+	OpenMesh::Vec3d n1 = OpenMesh::cross(vc - va, vb - va).normalize();
+	OpenMesh::Vec3d n2 = OpenMesh::cross(vb - va, vd - va).normalize();
+
+	OpenMesh::Vec3d na = !m.is_valid_handle(fa) ? OpenMesh::Vec3d(0.0) : OpenMesh::Vec3d(m.normal(fa));
+	OpenMesh::Vec3d nb = !m.is_valid_handle(fb) ? OpenMesh::Vec3d(0.0) : OpenMesh::Vec3d(m.normal(fb));
+	OpenMesh::Vec3d nc = !m.is_valid_handle(fc) ? OpenMesh::Vec3d(0.0) : OpenMesh::Vec3d(m.normal(fc));
+	OpenMesh::Vec3d nd = !m.is_valid_handle(fd) ? OpenMesh::Vec3d(0.0) : OpenMesh::Vec3d(m.normal(fd));
+
+	OpenMesh::Vec3d fn1 = OpenMesh::cross(vb - vc, vd - vc).normalize();
+	OpenMesh::Vec3d fn2 = OpenMesh::cross(vd - vc, va - vc).normalize();
+
+	ab_12 = cos_ang(n1, n2);
+	ab_a1 = cos_ang(na, n1);
+	ab_b1 = cos_ang(nb, n1);
+	ab_2c = cos_ang(n2, nc);
+	ab_2d = cos_ang(n2, nd);
+
+	aa_12 = cos_ang(fn1, fn2);
+	aa_b1 = cos_ang(nb, fn1);
+	aa_c1 = cos_ang(nc, fn1);
+	aa_2a = cos_ang(fn2, na);
+	aa_2d = cos_ang(fn2, nd);
+}
+
+double DihedralEnergy::energy(const myMesh & m, myMesh::HalfedgeHandle h) const
+{
+	myMesh::FaceHandle hf = m.face_handle(h);
+	myMesh::FaceHandle hof = m.face_handle(m.opposite_halfedge_handle(h));
+
+	double a = cos_ang(OpenMesh::Vec3d(m.normal(hf)), OpenMesh::Vec3d(m.normal(hof)));
+
+	myMesh::VertexHandle hv = m.to_vertex_handle(h);
+	myMesh::VertexHandle hov = m.to_vertex_handle(m.opposite_halfedge_handle(h));
+
+	OpenMesh::Vec3d va(m.point(hv));
+	OpenMesh::Vec3d vb(m.point(hov));
+
+	if (use_alpha)
+		return edge_alpha_energy(va, vb, a);
+
+	return edge_c_energy(va, vb, a);
+}
+
+double DihedralEnergy::delta_energy(const myMesh & m, myMesh::HalfedgeHandle h) const
+{
+	compute_angles(m, h);
+
+	myMesh::HalfedgeHandle eh = m.opposite_halfedge_handle(h);
+	myMesh::VertexHandle hv = m.to_vertex_handle(h);
+	myMesh::VertexHandle hov = m.to_vertex_handle(eh);
+	myMesh::VertexHandle hnv = m.to_vertex_handle(m.next_halfedge_handle(h));
+	myMesh::VertexHandle honv = m.to_vertex_handle(m.next_halfedge_handle(eh));
+
+	OpenMesh::Vec3d va(m.point(hv));
+	OpenMesh::Vec3d vb(m.point(hov));
+	OpenMesh::Vec3d vc(m.point(hnv));
+	OpenMesh::Vec3d vd(m.point(honv));
+
+	if (use_alpha) {
+		double before =
+			edge_alpha_energy(va, vb, ab_12)
+			+ edge_alpha_energy(va, vc, ab_a1)
+			+ edge_alpha_energy(vc, vb, ab_b1)
+			+ edge_alpha_energy(vd, vb, ab_2c)
+			+ edge_alpha_energy(vd, va, ab_2d);
+
+		double after =
+			edge_alpha_energy(vd, vc, aa_12)
+			+ edge_alpha_energy(vb, vc, aa_b1)
+			+ edge_alpha_energy(vd, vb, aa_c1)
+			+ edge_alpha_energy(va, vc, aa_2a)
+			+ edge_alpha_energy(vd, va, aa_2d);
+
+		return (after - before);
+	}
+	double before =
+		edge_c_energy(va, vb, ab_12)
+		+ edge_c_energy(va, vc, ab_a1)
+		+ edge_c_energy(vc, vb, ab_b1)
+		+ edge_c_energy(vd, vb, ab_2c)
+		+ edge_c_energy(vd, va, ab_2d);
+
+	double after =
+		edge_c_energy(vd, vc, aa_12)
+		+ edge_c_energy(vb, vc, aa_b1)
+		+ edge_c_energy(vd, vb, aa_c1)
+		+ edge_c_energy(va, vc, aa_2a)
+		+ edge_c_energy(vd, va, aa_2d);
+
+	return after - before;
+}
+
+
+void GELSmooth::LaplaceSmooth(myMesh &mesh, int max_iter) {
+	int count = 0;
+	std::vector<myMesh::Point> vertex_positions(mesh.n_vertices(), myMesh::Point(0.0));
+	for (int iter = 0; iter < max_iter; ++iter)//迭代max_iter次
+	{
+		int v_it = 0, v_size = mesh.n_vertices();//一共有几个点
+		std::cout << v_size << std::endl;
+		//遍历所有顶点
+		for (v_it = 0; v_it < v_size; ++v_it) {
+			
+			if (mesh.is_boundary(myMesh::VertexHandle(v_it))){
+				vertex_positions[v_it] = mesh.point(myMesh::VertexHandle(v_it));
+			}
+			else{
+
+
+				//先定义下计算更新后顶点位置的所需变量
+				double x_new = 0;
+				double y_new = 0;
+				double z_new = 0;
+				double w_sum = 0;
+				//遍历每个顶点的邻域面
+				//vertices_face容器存放此顶点的邻域面
+				std::vector<myMesh::FaceHandle> vertices_face;
+
+				for (myMesh::VertexFaceIter vf_it = mesh.vf_begin(myMesh::VertexHandle(v_it)); vf_it.is_valid(); ++vf_it)
+				{
+					//*vf_it就是句柄
+					myMesh::FaceHandle vf_handle = *vf_it;
+					//std::cout << vf_handle.idx() << std::endl;
+					vertices_face.push_back(vf_handle);
+				}
+				//std::cout << vertices_face.size() << std::endl;
+				//下面遍历vertices_face中每个面的半边
+				int i = 0;
+				//先遍历每个面
+				for (myMesh::FaceHandle f_it = vertices_face[0]; mesh.is_valid_handle(f_it) && i < vertices_face.size(); ++i) {
+
+					f_it = vertices_face[i];
+					//再遍历此面的半边
+					//先定义一个vector存放三个半边分别的长度，以便后面计算余切值。
+					std::vector<double> he_length;
+					std::vector<double> he_length2;
+					for (myMesh::FaceHalfedgeIter fh_it = mesh.fh_begin(f_it); fh_it.is_valid(); ++fh_it) {
+						//下面判断此半边的终点是否是刚刚的顶点v_it。如果是的话，就检查这个半边的对面的半边所在的面是否存在，如果存在则可以计算权重。
+						if (mesh.to_vertex_handle(*fh_it) == myMesh::VertexHandle(v_it)) {
+							//获取对面的半边句柄opp_handle
+							myMesh::HalfedgeHandle opp_handle = mesh.opposite_halfedge_handle(*fh_it);
+							//获取opp_handle所在面的句柄nei_f
+							myMesh::FaceHandle nei_f = mesh.face_handle(opp_handle);
+							//std::cout << mesh.is_valid_handle(nei_f) << std::endl;
+							//如果对面半边所在面存在，说明这个半边存在相邻面，则接着算权重
+							if (
+								(!mesh.is_boundary(f_it)) && (!mesh.is_boundary(nei_f))
+								//nei_f.is_valid() && (!mesh.is_boundary(opp_handle))
+								) {
+								//先打印一下这俩面的顶点
+								/*for (myMesh::FaceVertexIter fv_it = mesh.fv_begin(f_it); fv_it.is_valid(); ++fv_it)
+								{
+								myMesh::Point p1 =  mesh.point(*fv_it);
+								std::cout << p1[0] << "  " << p1[1] << "  " << p1[2] << "|";
+								}
+								std::cout << std::endl;
+								for (myMesh::FaceVertexIter fv_it = mesh.fv_begin(nei_f); fv_it.is_valid(); ++fv_it)
+								{
+								myMesh::Point p1 = mesh.point(*fv_it);
+								std::cout << p1[0] << "  " << p1[1] << "  " << p1[2] << "|";
+								}*/
+								//std::cout << std::endl;
+
+								//接着算三个半边的长度
+								//先算这个半边的长度
+								myMesh::Point from_point = mesh.point(mesh.from_vertex_handle(*fh_it));
+								myMesh::Point to_point = mesh.point(mesh.to_vertex_handle(*fh_it));
+								double x = from_point[0] - to_point[0];
+								//std::cout << x << std::endl;
+								double y = from_point[1] - to_point[1];
+								double z = from_point[2] - to_point[2];
+								double len = sqrt(pow(x, 2) + pow(y, 2) + pow(z, 2));
+								he_length.push_back(len);
+								//std::cout << len << "  ";
+
+								//再算下一个半边长度
+								myMesh::HalfedgeHandle next_he1 = mesh.next_halfedge_handle(*fh_it);
+								from_point = mesh.point(mesh.from_vertex_handle(next_he1));
+								to_point = mesh.point(mesh.to_vertex_handle(next_he1));
+								x = from_point[0] - to_point[0];
+								y = from_point[1] - to_point[1];
+								z = from_point[2] - to_point[2];
+								len = sqrt(pow(x, 2) + pow(y, 2) + pow(z, 2));
+								he_length.push_back(len);
+								//std::cout << len << "  ";
+								//再算下一个半边长度
+								myMesh::HalfedgeHandle next_he2 = mesh.next_halfedge_handle(next_he1);
+								from_point = mesh.point(mesh.from_vertex_handle(next_he2));
+								to_point = mesh.point(mesh.to_vertex_handle(next_he2));
+								x = from_point[0] - to_point[0];
+								y = from_point[1] - to_point[1];
+								z = from_point[2] - to_point[2];
+								len = sqrt(pow(x, 2) + pow(y, 2) + pow(z, 2));
+								he_length.push_back(len);
+								//std::cout << len << "  ";
+								//再计算对面的三个半边长度
+
+								from_point = mesh.point(mesh.from_vertex_handle(opp_handle));
+								to_point = mesh.point(mesh.to_vertex_handle(opp_handle));
+								x = from_point[0] - to_point[0];
+								y = from_point[1] - to_point[1];
+								z = from_point[2] - to_point[2];
+								len = sqrt(pow(x, 2) + pow(y, 2) + pow(z, 2));
+								he_length2.push_back(len);
+
+								next_he1 = mesh.next_halfedge_handle(opp_handle);
+								from_point = mesh.point(mesh.from_vertex_handle(next_he1));
+								to_point = mesh.point(mesh.to_vertex_handle(next_he1));
+								x = from_point[0] - to_point[0];
+								y = from_point[1] - to_point[1];
+								z = from_point[2] - to_point[2];
+								len = sqrt(pow(x, 2) + pow(y, 2) + pow(z, 2));
+								he_length2.push_back(len);
+
+								next_he2 = mesh.next_halfedge_handle(next_he1);
+								from_point = mesh.point(mesh.from_vertex_handle(next_he2));
+								to_point = mesh.point(mesh.to_vertex_handle(next_he2));
+								x = from_point[0] - to_point[0];
+								y = from_point[1] - to_point[1];
+								z = from_point[2] - to_point[2];
+								len = sqrt(pow(x, 2) + pow(y, 2) + pow(z, 2));
+								he_length2.push_back(len);
+
+								/*std::cout << he_length[0] << "  " << he_length[1] << "  " << he_length[2] << std::endl;
+								std::cout << he_length2[0] << "  " << he_length2[1] << "  " << he_length2[2] << std::endl;*/
+								//下面计算两个角度
+								double cosa = (he_length[1] * he_length[1] + he_length[2] * he_length[2] - he_length[0] * he_length[0]) / (2 * he_length[1] * he_length[2]);
+
+								double a = acos(cosa);//弧度制
+								double cosb = (he_length2[1] * he_length2[1] + he_length2[2] * he_length2[2] - he_length2[0] * he_length2[0]) / (2 * he_length2[1] * he_length2[2]);
+								double b = acos(cosb);
+								//std::cout << cosa << "  " << cosb << "  ";
+								//std::cout << a << "  " << b << "  ";
+								//算余切
+								double cota = 1 / tan(a);
+								double cotb = 1 / tan(b);
+
+								//计算变换后的点坐标
+								double w = (cota + cotb) / 2;
+								myMesh::Point pp = mesh.point(mesh.from_vertex_handle(*fh_it));
+								myMesh::Point p = mesh.point(mesh.to_vertex_handle(*fh_it));
+								x_new += w*(pp[0] - p[0]);
+								y_new += w*(pp[1] - p[1]);
+								z_new += w*(pp[2] - p[2]);
+								w_sum += w;
+
+								
+
+								he_length.clear();
+								he_length2.clear();
+
+								//std::cout << cota << "  " << cotb << std::endl;
+							}
+
+
+						}
+					}
+
+				}
+				//把算的距离太大的不变位置
+				if (sqrt(pow((x_new / w_sum), 2) + pow((y_new / w_sum), 2) + pow((z_new / w_sum), 2)) > 10){
+					/*for (myMesh::FaceVertexIter fv_it = mesh.fv_begin(f_it); fv_it.is_valid(); ++fv_it)
+					{
+					myMesh::Point p1 =  mesh.point(*fv_it);
+					std::cout << p1[0] << "  " << p1[1] << "  " << p1[2] << "|";
+					}
+					std::cout << std::endl;
+					for (myMesh::FaceVertexIter fv_it = mesh.fv_begin(nei_f); fv_it.is_valid(); ++fv_it)
+					{
+					myMesh::Point p1 = mesh.point(*fv_it);
+					std::cout << p1[0] << "  " << p1[1] << "  " << p1[2] << "|";
+					}
+					std::cout << std::endl;
+					std::cout << he_length[0] << "  " << he_length[1] << "  " << he_length[2] << std::endl;
+					std::cout << he_length2[0] << "  " << he_length2[1] << "  " << he_length2[2] << std::endl;*/
+					x_new = 0;
+					y_new = 0;
+					z_new = 0;
+				}
+				//此时已经遍历完一个顶点的邻域面，下面再计算新的顶点坐标
+				myMesh::Point p_new = mesh.point(myMesh::VertexHandle(v_it));
+				//如果都是0，说明该点没计算，那就不改变位置
+				if (x_new != 0) p_new[0] = mesh.point(myMesh::VertexHandle(v_it))[0] + x_new / w_sum;
+				if (y_new != 0) p_new[1] = mesh.point(myMesh::VertexHandle(v_it))[1] + y_new / w_sum;
+				if (z_new != 0) p_new[2] = mesh.point(myMesh::VertexHandle(v_it))[2] + z_new / w_sum;
+				//接下来就要改变点的位置到p_new上
+				vertex_positions[v_it] = p_new;
+				//mesh.set_point(myMesh::VertexHandle(v_it), p_new);
+				/*std::cout << mesh.point(myMesh::VertexHandle(v_it))[0] << "  " << mesh.point(myMesh::VertexHandle(v_it))[1] << "  " << mesh.point(myMesh::VertexHandle(v_it))[2] << "  ";
+				std::cout << p_new[0] << "  " << p_new[1] << "  " << p_new[2]<< std::endl;*/
+				
+			}
+
+		
+		}
+
+		for (int i = 0; i < vertex_positions.size(); ++i) {
+			mesh.set_point(myMesh::VertexHandle(i), vertex_positions[i]);
+		}
+		vertex_positions.clear();
+
+	}
+	
+}
+
+void GELSmooth::denoise(myMesh &mesh, int max_iter)
+{	
+	//这个函数是一共迭代max_iter次，每次先用GELSmoothFilter进行双边滤波把每个面的法线调整好
+	//并保存在filter_normals中。然后调整点的位置，包括10次迭代，每次迭代中利用半边迭代将每个
+	//半边的出发点都操作一遍，这样就能保证每个顶点被操作的次数是它相邻面的个数。
+	//最后再把mesh中所有顶点遍历一遍，将刚才计算过的每个顶点的位置信息除以其操作的次数
+	//就得到了平均的位置信息npos，最后把此顶点调整到npos位置上。这就是此函数的工作。
+	double avg_len = 0.0;//边平均长度
+
+	int e_it = 0, e_size = mesh.n_edges();
+#pragma omp parallel for default(shared) reduction(+:avg_len)
+	for (e_it = 0; e_it < e_size; ++e_it)
+	{
+		avg_len += mesh.calc_edge_length(myMesh::EdgeHandle(e_it));//为什么把所有的边长度加一起
+	}
+
+	std::vector<myMesh::Normal> filter_normals;
+	filter_normals.resize(mesh.n_faces(), myMesh::Normal(0.0));
+	for (int iter = 0; iter < max_iter; ++iter)//迭代max_iter次
+	{
+		int f_it = 0, f_size = mesh.n_faces();//一共有几个面
+#pragma omp parallel for
+		for (f_it = 0; f_it < f_size; ++f_it)//循环f_size次
+		{
+			filter_normals[f_it] = GELSmoothFilter(mesh, myMesh::FaceHandle(f_it), avg_len);//计算每个面的双边滤波后的法线。
+		}
+
+		//下面调整点位置
+		std::vector<myMesh::Point> vertex_positions(mesh.n_vertices(), myMesh::Point(0.0));
+		std::vector<int> count(mesh.n_vertices(), 0);
+		for (int sub_iter = 0; sub_iter < 10; ++sub_iter)//为什么是10次循环
+		{	
+			//每次遍历所有半边，根据每个半边的面法线和此半边的关系调整此半边的出发顶点，
+			//并记录每个顶点操作了几次
+			//下面的for循环遍历每个半边，每个面里有三个半边，最后每个顶点被操作的次数就是顶点相邻的面的个数
+			for (myMesh::HalfedgeIter he_it = mesh.halfedges_begin(); he_it != mesh.halfedges_end(); ++he_it)
+			{
+				//获取he_it半边所在的面fh
+				myMesh::FaceHandle fh = mesh.face_handle(*he_it);
+				if (fh.is_valid())
+				{
+					myMesh::VertexHandle vh = mesh.from_vertex_handle(*he_it);
+					//std::cout << vh << std::endl;
+					myMesh::Normal dir = mesh.point(mesh.to_vertex_handle(*he_it)) - mesh.point(vh);
+					myMesh::Normal n = filter_normals[fh.idx()];
+					vertex_positions[vh.idx()] += mesh.point(vh) + 0.5 * n * OpenMesh::dot(n, dir);
+					count[vh.idx()] += 1;//记录每个顶点操作了几次，最后应该次数是顶点相邻的面的个数。
+				}
+			}
+
+			double max_move = 0;
+			int v_it = 0, v_size = mesh.n_vertices();//顶点的个数
+#pragma omp parallel for//下面的循环把上面算出来的vertex_positions除以count[v_it]得到平均的位置npos，
+						//并调整到npos位置上。
+			for (v_it = 0; v_it < v_size; ++v_it)//循环v_size次
+			{
+				myMesh::Point npos;
+				int j = v_it;
+				if (count[j] == 0)//为什么会有顶点没被操作过？
+					npos = mesh.point(myMesh::VertexHandle(v_it));
+				else
+				{
+					npos = vertex_positions[v_it] / double(count[v_it]);
+					myMesh::Point a = npos - mesh.point(myMesh::VertexHandle(v_it));
+					double move = OpenMesh::dot(a, a);
+
+					//#pragma omp critical
+					if (move > max_move)
+						max_move = move;
+
+				}
+				mesh.set_point(myMesh::VertexHandle(v_it), npos);//把v_it所在顶点调整到npos的位置上去
+			}
+			//如果最大的移动距离都已经小于阈值，就不用再调整了，直接break推出循环。
+			if (max_move < (1e-8*avg_len)*(1e-8*avg_len))
+			{
+				break;
+			}
+		}
+
+		mesh.update_face_normals();//计算面法线信息
+	}
+}
+
+myMesh::Normal GELSmooth::GELSmoothFilter(myMesh & mesh, myMesh::FaceHandle fh, double avg_len)
+{
+	//此函数是把索引为fh的这个面的邻接面找出来然后遍历邻接面并利用这些邻接面的信息代入到双边滤波公式中，最后得到双边滤波完的此面的法向量。
+	//创建此面的法向量filter_normal
+	myMesh::Normal filter_normal = myMesh::Normal(0.0, 0.0, 0.0);
+	//创建此面邻域面的法向量容器face_neighbor
+	std::vector<myMesh::FaceHandle> face_neighbor;
+	//计算邻域面法向量放入face_neighbor中
+	getFaceNeighbor(mesh, fh, face_neighbor, true);
+	myMesh::Point  pi = mesh.calc_face_centroid(fh);//计算面中心点
+	myMesh::Normal ni = mesh.calc_face_normal(fh);//计算面法线
+	//遍历这些邻面
+	for (int i = 0; i < face_neighbor.size(); ++i)
+	{
+		myMesh::FaceHandle f = face_neighbor[i];
+		myMesh::Normal nj = mesh.calc_face_normal(f);
+		myMesh::Point  pj = mesh.calc_face_centroid(f);
+		//下面是计算Wa和Ws，就是双边法向滤波里的两个高斯函数。
+		double w_a = std::exp(-std::acos(max(-1.0, min(1.0, OpenMesh::dot(nj, ni)))) / (M_PI / 32));
+		double w_s = std::exp(-(pj - pi).length() / avg_len);
+
+		myMesh::Point face_vertices[3];
+		int j = 0;
+		//用循环器遍历这个面的顶点
+		for (myMesh::FaceVertexIter fv_it = mesh.fv_begin(f); fv_it.is_valid(); ++fv_it)
+		{
+			face_vertices[j++] = mesh.point(*fv_it);//把这个面的三个顶点放到face_vertices里
+		}
+		myMesh::Normal e1 = face_vertices[1] - face_vertices[0];
+		myMesh::Normal e2 = face_vertices[2] - face_vertices[0];//这是计算两条边e1,e2
+		double area = 0.5 * OpenMesh::cross(e1, e2).length();//计算这个面的面积
+		filter_normal += area * w_a*w_s*nj;//这是双边滤波公式，先求和，最后归一化。
+	}
+	return filter_normal.normalize();//归一化
+}
+
+void GELSmooth::getFaceNeighbor(myMesh & mesh, myMesh::FaceHandle fh, std::vector<myMesh::FaceHandle>& face_neighbor, bool is_include_self)
+{
+	face_neighbor.clear();
+	if (is_include_self)//如果传进来的是true，那么就包括传进来的面mesh本身，把其索引fh放进容器。
+	{
+		face_neighbor.push_back(fh);
+	}
+	
+	//计算面fh的一共几圈面片
+	int radius = 3;
+	//接下来用循环器循环每个面的顶点
+	for (myMesh::FaceVertexIter fv_it = mesh.fv_begin(fh); fv_it.is_valid(); ++fv_it)
+	{
+		//下面这个循环是用循环器循环每个顶点邻域的面
+		for (myMesh::VertexFaceIter vf_it = mesh.vf_iter(*fv_it); vf_it.is_valid(); ++vf_it)
+		{
+			if ((*vf_it) != fh) {
+				face_neighbor.push_back(*vf_it);
+				if (radius >= 2){
+					for (myMesh::FaceVertexIter fv_it1 = mesh.fv_begin(*vf_it); fv_it1.is_valid(); ++fv_it1) {
+						for (myMesh::VertexFaceIter vf_it1 = mesh.vf_iter(*fv_it1); vf_it1.is_valid(); ++vf_it1) {
+							if ((*vf_it1) != *vf_it) {
+								face_neighbor.push_back(*vf_it1);
+								if (radius >= 3){
+									for (myMesh::FaceVertexIter fv_it2 = mesh.fv_begin(*vf_it1); fv_it2.is_valid(); ++fv_it2) {
+										for (myMesh::VertexFaceIter vf_it2 = mesh.vf_iter(*fv_it2); vf_it2.is_valid(); ++vf_it2) {
+											if ((*vf_it2) != *vf_it1) {
+												face_neighbor.push_back(*vf_it2);
+
+											}
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+			}//如果不是传进来的fh这个面，就把它push到face_neighbor中。//这里暂时没考虑重复的问题，因为下面会去除重复，下面的去重方法听师兄说会比直接存放在set中快。
+				
+		}
+	}
+	//std::unique函数的作用是“去除”容器或者数组中相邻元素的重复出现的元素，注意 
+	//(1) 这里的去除并非真正意义的erase，而是将重复的元素放到容器的末尾，返回值是去重之后的尾地址。
+	//(2) unique针对的是相邻元素，所以对于顺序顺序错乱的数组成员，或者容器成员，需要先进行排序，可以调用std::sort()函数
+	std::sort(face_neighbor.begin(), face_neighbor.end());//升序排序
+	face_neighbor.erase(std::unique(face_neighbor.begin(), face_neighbor.end()), face_neighbor.end());
+	//所以这个意思是把std::unique返回的尾地址直到face_neighbor.end()给删除掉。
+	
+}
+
+void GELSmooth::optimize_mesh(myMesh& m)
+{
+	DihedralEnergy efun(4, true);
+	priority_queue_optimization(m, efun);
+}
+
+void GELSmooth::priority_queue_optimization(myMesh & m, const EnergyFun & efun)
+{
+	std::vector<HalfEdgeCounter> counter(m.n_halfedges(), HalfEdgeCounter{ 0, false });
+	std::vector<int> flipCounter(m.n_vertices(), 0);
+	std::priority_queue<PQElement> Q;
+
+	int time = 1;
+	for (myMesh::HalfedgeIter he_it = m.halfedges_begin(); he_it != m.halfedges_end(); ++he_it)
+	{
+		if (!counter[he_it->idx()].touched) {
+			add_to_queue(m, counter, Q, *he_it, efun, flipCounter, time);
+		}
+	}
+
+	while (!Q.empty())
+	{
+		PQElement elem = Q.top();
+		Q.pop();
+
+		if (counter[elem.h.idx()].isRemovedFromQueue)
+			continue;
+		counter[elem.h.idx()].isRemovedFromQueue = true;
+
+		if (counter[elem.h.idx()].touched != elem.time)
+			continue;
+
+		if (efun.delta_energy(m, elem.h) >= -0.001)
+			continue;
+
+		if (!m.is_flip_ok(m.edge_handle(elem.h)))
+			continue;
+
+		flipCounter[m.to_vertex_handle(elem.h).idx()]++;
+
+		m.flip(m.edge_handle(elem.h));
+
+		add_one_ring_to_queue(m, counter, Q, m.to_vertex_handle(elem.h), efun, flipCounter, time);
+		add_one_ring_to_queue(m, counter, Q, m.to_vertex_handle(m.next_halfedge_handle(elem.h)), efun, flipCounter, time);
+		add_one_ring_to_queue(m, counter, Q, m.to_vertex_handle(m.opposite_halfedge_handle(elem.h)), efun, flipCounter, time);
+		add_one_ring_to_queue(m, counter, Q, m.to_vertex_handle(m.next_halfedge_handle(m.opposite_halfedge_handle(elem.h))), efun, flipCounter, time);
+	}
+
+}
+
+void GELSmooth::add_to_queue(const myMesh & m, std::vector<HalfEdgeCounter>& counter, std::priority_queue<PQElement>& Q, myMesh::HalfedgeHandle h, const EnergyFun & efun, std::vector<int>& flipCounter, int time)
+{
+	if (m.is_boundary(h))
+		return;
+
+	if (m.to_vertex_handle(h).idx() < m.from_vertex_handle(h).idx())
+		h = m.opposite_halfedge_handle(h);
+
+	if (counter[h.idx()].touched == time)
+		return;
+	counter[h.idx()].isRemovedFromQueue = false;
+
+	if (!m.is_flip_ok(m.edge_handle(h)))
+		return;
+
+	double energy = efun.delta_energy(m, h);
+	counter[h.idx()].touched = time;
+
+	const int avgValence = 6;
+	if ((energy < 0) && (flipCounter[m.to_vertex_handle(h).idx()] < avgValence))
+		Q.push(PQElement(energy, h, time));
+
+}
+
+void GELSmooth::add_one_ring_to_queue(const myMesh & m, std::vector<HalfEdgeCounter>& touched, std::priority_queue<PQElement>& Q, myMesh::VertexHandle v, const EnergyFun & efun, std::vector<int>& flipCounter, int time)
+{
+	for (myMesh::ConstVertexVertexIter vv_it = m.cvv_iter(v); vv_it.is_valid(); ++vv_it)
+	{
+		add_to_queue(m, touched, Q, m.halfedge_handle(v), efun, flipCounter, time);
+	}
+}
+

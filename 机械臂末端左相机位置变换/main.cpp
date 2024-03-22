@@ -125,6 +125,8 @@ void visualize_pcd(pointcloud::Ptr pcd_src, pointcloud::Ptr pcd_tgt, pointcloud:
 
 int main(int argc, char** argv)
 {
+
+    //------------------------------------------------首先点云粗配准和精配准得到变换矩阵-----------------------------//
     pointcloud::Ptr source_cloud(new pointcloud);
     pointcloud::Ptr target_cloud(new pointcloud);
     pointcloud::Ptr source(new pointcloud);
@@ -153,10 +155,10 @@ int main(int argc, char** argv)
 
 
         string fileName1, fileName2, fileName3;
-        fileName3 = "C:\\Users\\123456\\Desktop\\测试工件\\线激光\\工件1配准\\source1.ply";
+        fileName3 = "C:\\Users\\123456\\Desktop\\测试工件\\机械臂扫描\\89.ply";
        
-        fileName1 = "C:\\Users\\123456\\Desktop\\测试工件\\线激光\\工件1配准\\融合前降1.ply";
-        fileName2 = "C:\\Users\\123456\\Desktop\\测试工件\\线激光\\工件1配准\\融合前降动1.ply";
+        fileName1 = "C:\\Users\\123456\\Desktop\\测试工件\\机械臂扫描\\8.ply";
+        fileName2 = "C:\\Users\\123456\\Desktop\\测试工件\\机械臂扫描\\9.ply";
       
 
 
@@ -301,12 +303,12 @@ int main(int argc, char** argv)
         end = clock();
         pcl::transformPointCloud(*source_cloud, *source_cloud, sac_ia.getFinalTransformation());
 
-        //pcl::io::savePLYFile("C:\\Users\\123456\\Desktop\\测试工件\\线激光\\zhua.ply", *align);
+        pcl::io::savePLYFile(fileName3, *align);
         cout << "calculate time is: " << float(end - start) / CLOCKS_PER_SEC << "s" << endl;
         cout << "\nSAC_IA has converged, score is " << sac_ia.getFitnessScore() << endl;
         cout << "变换矩阵：\n" << sac_ia.getFinalTransformation() << endl;
         //-------------------可视化------------------------------------
-        // visualize_pcd(source_cloud, target_cloud, align);
+         visualize_pcd(source_cloud, target_cloud, align);
 
 
 
@@ -327,7 +329,7 @@ int main(int argc, char** argv)
         // 然后会输出最终变换矩阵的匹配分数和变换矩阵等信息。
 
         icp.align(*Final);
-        *Final += *target_cloud;
+        //*Final += *target_cloud;
         pcl::transformPointCloud(*source_cloud, *source_cloud, icp.getFinalTransformation());
         //*source_cloud += *target_cloud;
         pcl::io::savePLYFileASCII(fileName3, *source_cloud);
@@ -335,7 +337,7 @@ int main(int argc, char** argv)
             icp.getFitnessScore() << std::endl;
         const pcl::Registration<pcl::PointXYZ, pcl::PointXYZ, float>::Matrix4& matrix = icp.getFinalTransformation();
         std::cout << matrix << std::endl;
-
+        visualize_pcd(source_cloud, target_cloud, Final);
         //下面根据粗精配准的变换矩阵求变换后的点位置
         Eigen::Matrix4f T_matrix1 = sac_ia.getFinalTransformation();
         Eigen::Matrix4f T_matrix2 = icp.getFinalTransformation();
@@ -343,12 +345,91 @@ int main(int argc, char** argv)
        /* Eigen::Matrix4f T = T_matrix2 * T_matrix1;
         std::cout << T << std::endl;*/
 
-        //p是机械臂末端点位置，但还不是左相机位置
+    //    //p根据手眼标定矩阵来的，p是在末端坐标系观察相机坐标系原点的坐标
+    //    Eigen::Vector4f p ,pc;
+    //    p << -95.8984, 79.1573, 141.0851,1;
+    //    
+    ////由欧拉角获得旋转矩阵
+    //    float init_roll = -76.744, init_pitch = 21.9, init_yaw = 163.487;
+    //    //float init_roll = 163.487, init_pitch = -76.744, init_yaw = 21.9;
+    //    //float init_pitch = 163.487, init_yaw = -76.744, init_roll = 21.9;
+    //    Eigen::AngleAxisf init_rotation_x(DEG2RAD(init_roll), Eigen::Vector3f::UnitX());
+    //    Eigen::AngleAxisf init_rotation_y(DEG2RAD(init_pitch), Eigen::Vector3f::UnitY());
+    //    Eigen::AngleAxisf init_rotation_z(DEG2RAD(init_yaw), Eigen::Vector3f::UnitZ());
+
+    //    Eigen::Matrix3f R_M;
+    //    R_M = init_rotation_z * init_rotation_y * init_rotation_x;
+    //    std::cout << "R_M: " << std::endl << R_M << std::endl;
+    //    
+    ////求变换矩阵
+    //    Eigen::Matrix3f rotation_matrix1 = Eigen::Matrix3f::Identity();
+    //    rotation_matrix1 = R_M;
+    //    Eigen::Vector3f t1;
+    //    t1 << -148.7, -350, 583.1;//这个输入末端位置
+    //    
+    //    Eigen::Isometry3f T1 = Eigen::Isometry3f::Identity();
+    //    T1 = Eigen::Isometry3f::Identity();
+    //    T1.rotate(rotation_matrix1);
+    //    T1.pretranslate(t1);
+    //    cout << "T1 from r,t:\n" << T1.matrix() << endl;
+    //    
+    //   
+    //    pc = T1.matrix() * p;
+    //    std::cout << "左相机变换前位置：" << pc << std::endl;
+    //    //计算左相机移动后位置
+    //    Eigen::Vector4f pc2;
+    //    pc2 = T_matrix2 * T_matrix1 * pc;
+    //    std::cout << "左相机变换后位置：" << pc2 << std::endl;
+
+
+    //    //下面计算第二个位姿的真实左相机位置
+    //     //由欧拉角获得旋转矩阵
+    //    float init_roll2 = -73.785, init_pitch2 = -10.789, init_yaw2 = -148.4167;
+    //    //float init_roll2 = -148.4167, init_pitch2 = -73.785, init_yaw2 = -10.789;
+    //    //float init_pitch2 = -148.4167, init_yaw2 = -73.785, init_roll2 = -10.789;
+    //    Eigen::AngleAxisf init_rotation_x2(DEG2RAD(init_roll2), Eigen::Vector3f::UnitX());
+    //    Eigen::AngleAxisf init_rotation_y2(DEG2RAD(init_pitch2), Eigen::Vector3f::UnitY());
+    //    Eigen::AngleAxisf init_rotation_z2(DEG2RAD(init_yaw2), Eigen::Vector3f::UnitZ());
+
+    //    Eigen::Matrix3f R_M2;
+    //    R_M = init_rotation_z2 * init_rotation_y2 * init_rotation_x2;
+    //    std::cout << "R_M2: " << std::endl << R_M2 << std::endl;
+
+    //    //求变换矩阵
+    //    Eigen::Matrix3f rotation_matrix2 = Eigen::Matrix3f::Identity();
+    //    rotation_matrix2 = R_M2;
+    //    Eigen::Vector3f t2;
+    //    t2 << -31.19, -378.7, 640.9;//这个输入末端位置
+
+    //    Eigen::Isometry3f T2 = Eigen::Isometry3f::Identity();
+    //    T2 = Eigen::Isometry3f::Identity();
+    //    T2.rotate(rotation_matrix2);
+    //    T2.pretranslate(t2);
+    //    cout << "T2 from r,t:\n" << T2.matrix() << endl;
+
+    //    Eigen::Vector4f pc3;
+    //    pc3 = T2.matrix() * p;
+    //    std::cout << "左相机变换后真实位置：" << pc3 << std::endl;
+    //    double dis = sqrt(pow((pc3(0, 0) - pc2(0, 0)), 2) + pow((pc3(1, 0) - pc2(1, 0)), 2) + pow((pc3(2, 0) - pc2(2, 0)), 2));
+    //    std::cout << "两点距离：" << dis << std::endl;
+
+
+
+//------------------------------------------------然后验证两个点位置误差-----------------------------//
+        //由于刚才算的是第一帧点云向第二帧的变换矩阵，所以它的逆矩阵才是相机位置变化的变换矩阵
+        //首先得到了S1坐标系下的S2原点坐标p
+        Eigen::Matrix4f T = T_matrix2 * T_matrix1;
+        T = T.inverse();
+        float x1 = T(0, 3), y1 = T(1, 3), z1 = T(2, 3);
+        std::cout << x1 << " " << y1 << "" << z1 << std::endl;
+        std::cout << T << std::endl;
+
         Eigen::Vector4f p;
-        p << -12.1, -463.5, 464.9, 1;
+        p << x1, y1, z1,1;
 
-        //输入机械臂末端到左相机的变换矩阵
 
+
+        //第一个变换，从S到E坐标系
         Eigen::Isometry3f T1 = Eigen::Isometry3f::Identity();
         Eigen::Matrix3f rotation_matrix1 = Eigen::Matrix3f::Identity();
         rotation_matrix1 << 0.9731, -0.0006, -0.23,
@@ -362,19 +443,133 @@ int main(int argc, char** argv)
         T1.pretranslate(t1);
         std::cout <<"T1.matrix():" << std::endl << T1.matrix() << std::endl;
 
-        //得到左相机位置坐标
-        Eigen::Vector4f pc;
-        pc = T1.matrix() * p;
-        std::cout <<"左相机变换前位置：" << pc << std::endl;
-        //计算左相机移动后位置
-        Eigen::Vector4f p1;
-        p1 = T_matrix2 * T_matrix1 * pc;
-        std::cout << "左相机变换后位置：" << p1 << std::endl;
+        //第二个变换，从E到W坐标系
+        //由欧拉角获得旋转矩阵
+        float init_roll = -76.744, init_pitch = 21.9, init_yaw = 163.487;//需要输入
+      
+        Eigen::AngleAxisf init_rotation_x(DEG2RAD(init_roll), Eigen::Vector3f::UnitX());
+        Eigen::AngleAxisf init_rotation_y(DEG2RAD(init_pitch), Eigen::Vector3f::UnitY());
+        Eigen::AngleAxisf init_rotation_z(DEG2RAD(init_yaw), Eigen::Vector3f::UnitZ());
+
+        Eigen::Matrix3f R_M;
+        R_M = init_rotation_z * init_rotation_y * init_rotation_x;
+        std::cout << "R_M: " << std::endl << R_M << std::endl;
         
-        //计算与真实点距离
-        Eigen::Vector3f p2;
-        p2 << -95.8984, 79.1573, 141.0851;//待填入
-        double dis = sqrt(pow((p1(0, 0) - p2(0, 0)), 2) + pow((p1(1, 0) - p2(1, 0)), 2) + pow((p1(2, 0) - p2(2, 0)), 2));
+        //求变换矩阵
+        Eigen::Matrix3f rotation_matrix2 = Eigen::Matrix3f::Identity();
+        rotation_matrix2 = R_M;
+        Eigen::Vector3f t2;
+        t2 << -148.7, -350, 583.1;////需要输入这个输入末端位置
+        
+        Eigen::Isometry3f T2 = Eigen::Isometry3f::Identity();
+        T2 = Eigen::Isometry3f::Identity();
+        T2.rotate(rotation_matrix2);
+        T2.pretranslate(t2);
+        cout << "T2 from r,t:\n" << T2.matrix() << endl;
+
+        //得到了从第一个路径算出的S2原点的世界坐标系
+        p = T2.matrix() * T1.matrix() * p;
+        cout << "p:  " << p << endl;
+
+
+
+
+        //下面从第二个路径计算
+        Eigen::Vector4f p2;
+        p2 << -95.8984, 79.1573, 141.0851, 1; 
+        //p2 << 111.27, -141.625, 54.187, 1;
+        //由欧拉角获得旋转矩阵
+        float init_roll22 = -73.785, init_pitch22 = -10.789, init_yaw22 = -148.4167;//需要输入
+       
+        Eigen::AngleAxisf init_rotation_x22(DEG2RAD(init_roll22), Eigen::Vector3f::UnitX());
+        Eigen::AngleAxisf init_rotation_y22(DEG2RAD(init_pitch22), Eigen::Vector3f::UnitY());
+        Eigen::AngleAxisf init_rotation_z22(DEG2RAD(init_yaw22), Eigen::Vector3f::UnitZ());
+
+        Eigen::Matrix3f R_M22;
+        R_M22 = init_rotation_z22 * init_rotation_y22 * init_rotation_x22;
+        std::cout << "R_M22: " << std::endl << R_M22 << std::endl;
+
+        //求变换矩阵
+        Eigen::Matrix3f rotation_matrix22= Eigen::Matrix3f::Identity();
+        rotation_matrix22 = R_M22;
+        Eigen::Vector3f t22;
+        t22 << -31.19, -378.7, 640.9;////需要输入这个输入末端位置
+
+        Eigen::Isometry3f T22 = Eigen::Isometry3f::Identity();
+        T22 = Eigen::Isometry3f::Identity();
+        T22.rotate(rotation_matrix22);
+        T22.pretranslate(t22);
+        cout << "T22 from r,t:\n" << T22.matrix() << endl;
+
+        p2 = T22.matrix()* p2;
+        cout << "p2:  " << p2 << endl;
+        double dis = sqrt(pow((p(0, 0) - p2(0, 0)), 2) + pow((p(1, 0) - p2(1, 0)), 2) + pow((p(2, 0) - p2(2, 0)), 2));
         std::cout << "两点距离：" << dis << std::endl;
+
+
+        ////输入机械臂末端到左相机的变换矩阵
+
+        //Eigen::Isometry3f T1 = Eigen::Isometry3f::Identity();
+        //Eigen::Matrix3f rotation_matrix1 = Eigen::Matrix3f::Identity();
+        //rotation_matrix1 << 0.9731, -0.0006, -0.23,
+        //    -0.23, 0.0059, -0.9731,
+        //    0.002, 0.9999, 0.0056;
+        //Eigen::Vector3f t1;
+        //t1 << -95.8984, 79.1573, 141.0851;
+
+        //T1 = Eigen::Isometry3f::Identity();
+        //T1.rotate(rotation_matrix1);
+        //T1.pretranslate(t1);
+        //std::cout <<"T1.matrix():" << std::endl << T1.matrix() << std::endl;
+
+        ////得到左相机位置坐标
+        //Eigen::Vector4f pc;
+        //pc = T1.matrix() * p;
+        //std::cout <<"左相机变换前位置：" << pc << std::endl;
+        ////计算左相机移动后位置
+        //Eigen::Vector4f p1;
+        //p1 = T_matrix2 * T_matrix1 * pc;
+        //std::cout << "左相机变换后位置：" << p1 << std::endl;
+        //
+        ////计算与真实点距离
+        //Eigen::Vector4f p2;
+        //p2 << -31, -378.7, 640.9,1;//待填入
+
+        //Eigen::Isometry3f T2 = Eigen::Isometry3f::Identity();
+        //Eigen::Matrix3f rotation_matrix2 = Eigen::Matrix3f::Identity();
+        //rotation_matrix2 << 0.9731, -0.0006, -0.23,
+        //    -0.23, 0.0059, -0.9731,
+        //    0.002, 0.9999, 0.0056;
+        //Eigen::Vector3f t2;
+        //t2 << -95.8984, 79.1573, 141.0851;
+
+        //T2 = Eigen::Isometry3f::Identity();
+        //T2.rotate(rotation_matrix1);
+        //T2.pretranslate(t2);
+        //std::cout << "T2.matrix():" << std::endl << T2.matrix() << std::endl;
+
+        ////
+        //Eigen::Vector4f pc2;
+        //pc2 = T2.matrix() * p2;
+        //std::cout << "左相机变换前位置：" << pc << std::endl;
+        //double dis = sqrt(pow((p1(0, 0) - pc2(0, 0)), 2) + pow((p1(1, 0) - pc2(1, 0)), 2) + pow((p1(2, 0) - pc2(2, 0)), 2));
+        //std::cout << "两点距离：" << dis << std::endl;
     return 0;
 }
+
+
+
+
+
+
+
+
+
+
+//Eigen::Isometry3f T1 = Eigen::Isometry3f::Identity();
+//Eigen::Matrix3f rotation_matrix1 = Eigen::Matrix3f::Identity();
+//rotation_matrix1 << 0.9733, -0.23, 0.00194,
+//-0.00066, 0.0059, 1,
+//-0.23, -0.9732, 0.0056;
+//Eigen::Vector3f t1;
+//t1 << 111.27, -141.625, 54.187;
